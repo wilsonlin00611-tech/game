@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MediaPipe 頂球遊戲</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+  <style>
+    body { margin: 0; background: #1a1a1a; display: flex; flex-direction: column; align-items: center; color: white; font-family: 'Arial', sans-serif; }
+    canvas { border: 4px solid #4CAF50; border-radius: 15px; max-width: 90vw; transform: scaleX(-1); }
+    .status { position: absolute; top: 20px; font-size: 24px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="status">分數: <span id="score">0</span></div>
+  <video id="input_video" style="display:none"></video>
+  <canvas id="output_canvas" width="640" height="480"></canvas>
+
+  <script>
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const scoreDisplay = document.getElementById('score');
+
+    let score = 0;
+    let ball = { x: 320, y: 0, speedY: 5, speedX: 2, radius: 20 };
+    let headX = 0, headY = 0;
+
+    function onResults(results) {
+      // 繪製背景影像
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        
+        // 取得額頭的點 (編號 10 是額頭正中心)
+        headX = landmarks[10].x * canvasElement.width;
+        headY = landmarks[10].y * canvasElement.height;
+
+        // 畫出「頭部擊球區」標記
+        canvasCtx.fillStyle = "#00FF00";
+        canvasCtx.beginPath();
+        canvasCtx.arc(headX, headY, 10, 0, 2 * Math.PI);
+        canvasCtx.fill();
+      }
+
+      updateBall();
+      drawBall();
+      canvasCtx.restore();
+    }
+
+    function updateBall() {
+      ball.y += ball.speedY;
+      ball.x += ball.speedX;
+
+      // 牆壁碰撞
+      if (ball.x < 0 || ball.x > canvasElement.width) ball.speedX *= -1;
+
+      // 檢查是否跟頭部碰撞 (距離判斷)
+      let dx = ball.x - headX;
+      let dy = ball.y - headY;
+      let distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 50) { // 碰撞半徑
+        ball.speedY = -Math.abs(ball.speedY) - 0.5; // 反彈並加速
+        ball.speedX = (Math.random() - 0.5) * 10; // 隨機改變水平速度
+        score++;
+        scoreDisplay.innerText = score;
+        ball.y = headY - 55; // 防止連續碰撞
+      }
+
+      // 掉到底部重置
+      if (ball.y > canvasElement.height) {
+        ball.y = 0;
+        ball.x = Math.random() * canvasElement.width;
+        ball.speedY = 5;
+        score = 0;
+        scoreDisplay.innerText = score;
+      }
+    }
+
+    function drawBall() {
+      canvasCtx.fillStyle = "#FFD700";
+      canvasCtx.beginPath();
+      canvasCtx.arc(ball.x, ball.y, ball.radius, 0, 2 * Math.PI);
+      canvasCtx.fill();
+      canvasCtx.strokeStyle = "white";
+      canvasCtx.lineWidth = 3;
+      canvasCtx.stroke();
+    }
+
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  </script>
+</body>
+</html>
